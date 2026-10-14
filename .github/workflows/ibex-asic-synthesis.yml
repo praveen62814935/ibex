@@ -28,7 +28,16 @@ jobs:
         with:
           github_access_token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Run repository synthesis flow
+      - name: Resolve Ibex RTL and primitive dependencies with FuseSoC
+        shell: bash
+        run: |
+          set -euo pipefail
+          nix develop .#shell --command bash -lc '
+            set -euo pipefail
+            fusesoc --cores-root=. run --target=default --setup lowrisc:ibex:ibex_top
+          '
+
+      - name: Convert RTL and synthesize with repository Yosys/OpenSTA flow
         shell: bash
         run: |
           set -euo pipefail
