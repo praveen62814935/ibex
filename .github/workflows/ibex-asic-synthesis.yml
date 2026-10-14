@@ -1,0 +1,77 @@
+name: Ibex ASIC synthesis (Yosys + OpenSTA)
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/ibex-asic-synthesis.yml'
+      - 'rtl/**'
+      - 'vendor/**'
+      - 'syn/**'
+      - '*.core'
+      - 'util/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  synthesize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Check out Ibex
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v30
+        with:
+          github_access_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run repository synthesis flow
+        shell: bash
+        run: |
+          set -euo pipefail
+          nix develop .#syn_shell --command bash -lc '
+            set -euo pipefail
+            cd syn
+            ./syn_yosys.sh
+          '
+
+      - name: Package converted RTL, mapped netlist, constraints, and reports
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="$(find syn/syn_out -maxdepth 1 -type d -name 'ibex_*' -printf '%T@ %p\n' | sort -nr | head -n1 | cut -d' ' -f2-)"
+          test -n "$OUT"
+          test -d "$OUT/generated"
+          mkdir -p asic_delivery/converted_rtl asic_delivery/netlist asic_delivery/reports asic_delivery/constraints
+          cp "$OUT"/generated/*.v asic_delivery/converted_rtl/
+          cp "$OUT"/generated/ibex_top.pre_map.v asic_delivery/netlist/
+          cp "$OUT"/generated/ibex_top_netlist.v asic_delivery/netlist/
+          cp "$OUT"/generated/ibex_top_netlist.sta.v asic_delivery/netlist/ 2>/dev/null || true
+          cp "$OUT"/reports/area.rpt asic_delivery/reports/ 2>/dev/null || true
+          cp "$OUT"/log/syn.log asic_delivery/reports/ 2>/dev/null || true
+          cp "$OUT"/log/sta.log asic_delivery/reports/ 2>/dev/null || true
+          cp "$OUT"/reports/timing/* asic_delivery/reports/ 2>/dev/null || true
+          cp syn/ibex_top.nangate.sdc asic_delivery/constraints/ 2>/dev/null || true
+          cp "$OUT"/*.sdc asic_delivery/constraints/ 2>/dev/null || true
+          {
+            echo "Source revision: $GITHUB_SHA"
+            echo "Synthesis output: $OUT"
+            echo
+            echo "Files:"
+            find asic_delivery -type f -printf '%p (%s bytes)\n' | sort
+          } > asic_delivery/BUILD_INFO.txt
+
+      - name: Upload ASIC delivery artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ibex-asic-delivery-${{ github.run_number }}
+          path: |
+            asic_delivery/
+            syn/syn_out/
+          if-no-files-found: warn
+          retention-days: 14
