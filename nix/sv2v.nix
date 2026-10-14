@@ -11,7 +11,7 @@
   ...
 }: let
   packageName = "sv2v";
-  ghcVersion = "928";
+  ghcVersion = "948";
 
   inherit (pkgs.haskell.lib) overrideCabal justStaticExecutables;
   hpkgs = pkgs.haskell.packages."ghc${ghcVersion}";
